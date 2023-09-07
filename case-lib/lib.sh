@@ -339,6 +339,33 @@ find_ldc_file()
     printf '%s' "$ldcFile"
 }
 
+# Prints the syst collateal file found on stdout, logs on stderr.
+find_syst_dict_file()
+{
+    local dict_file
+    # if user doesn't specify file path of sof-*.ldc, fall back to
+    # /etc/sof/sof-PLATFORM.ldc, which is the default path used by CI.
+    # and then on the standard location.
+    if [ -n "$SOFSYST" ]; then
+        dict_file="$SOFSYST"
+        >&2 dlogi "SOFSYST=${SOFSYST} overriding default locations"
+    else
+        local platf; platf=$(sof-dump-status.py -p) || {
+            >&2 dloge "Failed to query platform with sof-dump-status.py"
+            return 1
+        }
+        # reuse LDC subdir logic on purpose
+        local subdir; subdir=$(get_ldc_subdir)
+        dict_file=/lib/firmware/"${subdir}"/mipi_syst_collateral.xml
+    fi
+
+    [[ -e "$dict_file" ]] || {
+        >&2 dlogi "MIPI Sys-T Collateral file $dict_file not found"
+        return 1
+    }
+    printf '%s' "$dict_file"
+}
+
 func_mtrace_collect()
 {
     local clogfile="$1"
@@ -355,6 +382,44 @@ func_mtrace_collect()
     # Cleaned up by func_exit_handler() in hijack.sh
     # shellcheck disable=SC2024
     sudo "${mtraceCmd[@]}" >& "$clogfile" &
+}
+
+func_lib_log_post_process()
+{
+    # nothing to do unless dictionary backends of Zephyr
+    # are used
+    if ! is_ipc4 && ! is_firmware_file_zephyr; then
+        return 0
+    fi
+
+    # systprint tool is available via
+    # - https://github.com/zephyrproject-rtos/mipi-sys-t
+    # - https://github.com/MIPI-Alliance/public-mipi-sys-t
+    if [ -z "$SYSTPRINT" ]; then
+        SYSTPRINT=$(command -v systprint) || {
+            dlogw 'No systprint found in PATH'
+            return 1
+        }
+    fi
+
+    local logfile="$LOG_ROOT"/mtrace.txt
+    local outfile="$LOG_ROOT"/mtrace-decoded.txt
+
+    grep -q "SYS-T RAW DATA:" $logfile || {
+        return 0
+    }
+
+    local dict_file
+    dict_file=$(find_syst_dict_file) || {
+        dloge 'Sys-T dict file not found, unable to postprocess!'
+        return 1
+    }
+
+    echo $SYSTPRINT -p -c $dict_file $logfile
+    $SYSTPRINT -p -c $dict_file $logfile >$outfile || {
+        dlogw 'Error running sysprint'
+        return 1
+    }
 }
 
 func_sof_logger_collect()
