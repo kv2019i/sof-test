@@ -403,7 +403,7 @@ func_lib_log_post_process()
     fi
 
     local logfile="$LOG_ROOT"/mtrace.txt
-    local outfile="$LOG_ROOT"/mtrace-decoded.txt
+    local outfile="$LOG_ROOT"/mtrace-decoded.csv
 
     grep -q "SYS-T RAW DATA:" $logfile || {
         return 0
@@ -415,8 +415,7 @@ func_lib_log_post_process()
         return 1
     }
 
-    echo $SYSTPRINT -p -c $dict_file $logfile
-    $SYSTPRINT -p -c $dict_file $logfile >$outfile || {
+    $SYSTPRINT -c $dict_file $logfile >$outfile || {
         dlogw 'Error running sysprint'
         return 1
     }
